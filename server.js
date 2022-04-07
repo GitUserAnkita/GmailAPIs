@@ -1,19 +1,32 @@
+const fs = require('fs');
+const path = require('path');
+const jwt = require('jsonwebtoken');
 const express = require('express');
 const app = express();
 
 const { google } = require('googleapis');
-var OAuth2 = google.auth.OAuth2;    
-const gmail = google.gmail('v1')
-require('dotenv').config()
+const gmail = google.gmail('v1');
 
-var code ;
+var token;
+var data;
+/**
+ * To use OAuth2 authentication, we need access to a CLIENT_ID, CLIENT_SECRET, AND REDIRECT_URI.  To get these credentials for your application, visit https://console.cloud.google.com/apis/credentials.
+ */
+const keyPath = path.join(__dirname, 'oauth2.keys.json');
+let keys = { redirect_uris: [''] };
+if (fs.existsSync(keyPath)) {
+  keys = require(keyPath).web;
+}
+
+/**
+ * Create a new OAuth2 client with the configured keys.
+ */
 const oauth2Client = new google.auth.OAuth2(
-  YOUR_CLIENT_ID = process.env.ClientId,
-  YOUR_CLIENT_SECRET = process.env.ClientSecret,
-  YOUR_REDIRECT_URL = "http://localhost:3000/auth/google/callback"
+  keys.client_id,
+  keys.client_secret,
+  keys.redirect_uris[0]
 );
-console.log(oauth2Client)
-// generate a url that asks permissions for Blogger and Google Calendar scopes
+
 const scopes = [
   "https://mail.google.com/",
   "https://www.googleapis.com/auth/gmail.modify",
@@ -21,35 +34,69 @@ const scopes = [
   "profile"
 ];
 
-const url = oauth2Client.generateAuthUrl({
-  // 'online' (default) or 'offline' (gets refresh_token)
+const urls = oauth2Client.generateAuthUrl({
   access_type: 'offline',
-  // If you only need one scope you can pass it as a string
   scope: scopes
 });
 
-app.get('/auth',(req,res)=>{
-    res.redirect(url)
-});
-app.get('/message',(req,res)=>{
-  res.send("user logedin...")
-})
-app.get("/auth/google/callback",(req,res)=>{
-    code = req.query.code
-   console.log(code)
-   res.redirect('/message')
-   
+
+google.options({ auth: oauth2Client })
+
+app.get('/auth', (req, res) => {
+  // res.redirect(urls)
+  console.log(urls)
+  res.status(200).send({ url: urls })
 });
 
-// app.get('/token',(req,res)=>{
-// const {tokens} =  oauth2Client.getToken(code)
-// oauth2Client.setCredentials(tokens);
-// console.log("token = ",tokens)
-// })
+app.get("/auth/google/callback", async (req, res) => {
+  code = req.query.code
+  const { tokens } = await oauth2Client.getToken(code)
+  oauth2Client.setCredentials(tokens);
+  token = tokens.id_token
+  // res.status(200).send(token)
+  console.log(token)
+  res.redirect(`http://localhost:3001/GoogleLogin?token=${token}`);
+});
 
+app.get('/inbox', async (req, res) => {
+  var messageDataArray = []
+  var token = req.headers.token;
+  var decoded = jwt.decode(token);
+  var email = decoded.email
+  var oauth2 = google.oauth2({
+    auth: oauth2Client,
+    version: 'v2'
+  });
 
-app.listen(3000,()=>{
-    console.log(`server is ready to prt on 3000`)
+  const result = await gmail.users.messages.list({
+    userId: email,
+  });
+  console.log(result.data.messages);
+  for (var i = 0; i < 4; i++) {
+    messagId = result.data.messages[i].id;
+    console.log(messagId)
+    messageData = await gmail.users.messages.get({
+      id: messagId,
+      userId: email,
+    });
+    messageDataArray.push(messageData.data)
+  }
+  res.status(200).send(messageDataArray)
 })
 
-module.exports = app ;
+
+app.get('/verify',(req, res) =>{
+  var token = req.headers.token
+  var decoded = jwt.decode(token);
+  var exp = decoded.exp;
+  // exp in millis
+ if (exp < Date.now() / 1000) {
+    res.status(400).send({status:false,message:"token expired"})
+  }else{
+    res.status(200).send({status:true , message:"token valid"})
+  }
+});
+
+app.listen(3000, () => {
+  console.log(`server is ready to prt on 3000`)
+})
