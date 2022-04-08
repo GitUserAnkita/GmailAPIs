@@ -19,9 +19,6 @@
     "googleapis": "^39.2.0",
     "googleapis-common": "^5.1.0",
     "jsonwebtoken": "^8.5.1",
-    "nodemon": "^2.0.15",
-    "open": "^8.4.0",
-    "qs": "^6.10.3",
-    "server-destroy": "^1.0.1"
+    "nodemon": "^2.0.15"
   }
 }
